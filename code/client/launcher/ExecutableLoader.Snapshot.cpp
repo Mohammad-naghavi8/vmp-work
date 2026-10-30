@@ -516,11 +516,18 @@ bool ExecutableLoader::LoadSnapshot(IMAGE_NT_HEADERS* ntHeader)
 			DWORD oldProtect;
 			VirtualProtect(targetPtr, targetSize, PAGE_EXECUTE_READWRITE, &oldProtect);
 
-			if (fread(targetPtr, 1, targetSize, f.get()) != targetSize)
+		if (fread(targetPtr, 1, targetSize, f.get()) != targetSize)
+		{
+			// prevent infinite recursion/loop if snapshot creation fails repeatedly
+			static int snapshotRetryCount = 0;
+			if (snapshotRetryCount++ > 3)
 			{
-				DoCreateSnapshot();
+				trace("ExecutableLoader: Snapshot read failed repeatedly, aborting to prevent infinite loop.\n");
 				return false;
 			}
+			DoCreateSnapshot();
+			return false;
+		}
 
 			SHA256_Update(&sha, targetPtr, targetSize);
 			++section;
@@ -528,6 +535,13 @@ bool ExecutableLoader::LoadSnapshot(IMAGE_NT_HEADERS* ntHeader)
 
 		if (fread(compareHash, 1, sizeof(compareHash), f.get()) != sizeof(compareHash))
 		{
+			// prevent infinite recursion/loop if snapshot creation fails repeatedly
+			static int snapshotRetryCount = 0;
+			if (snapshotRetryCount++ > 3)
+			{
+				trace("ExecutableLoader: Final hash read failed repeatedly, aborting to prevent infinite loop.\n");
+				return false;
+			}
 			DoCreateSnapshot();
 			return false;
 		}
